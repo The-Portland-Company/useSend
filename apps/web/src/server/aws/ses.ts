@@ -180,6 +180,75 @@ export async function getDomainIdentity(domain: string, region: string) {
   return response;
 }
 
+/**
+ * Sends an email through the Resend REST API. Used as a drop-in replacement for
+ * the SES transport when RESEND_API_KEY is set. Returns a message id string so
+ * callers (the queue worker) can treat it like an SES MessageId.
+ */
+async function sendRawEmailViaResend({
+  to,
+  from,
+  subject,
+  html,
+  text,
+  replyTo,
+  cc,
+  bcc,
+  attachments,
+  headers,
+}: {
+  to?: string[];
+  from?: string;
+  subject?: string;
+  html?: string;
+  text?: string;
+  replyTo?: string[];
+  cc?: string[];
+  bcc?: string[];
+  attachments?: { filename: string; content: string }[];
+  headers?: Record<string, string>;
+}): Promise<string> {
+  const payload: Record<string, unknown> = {
+    from,
+    to,
+    subject,
+  };
+  if (html) payload.html = html;
+  if (text) payload.text = text;
+  if (replyTo && replyTo.length) payload.reply_to = replyTo;
+  if (cc && cc.length) payload.cc = cc;
+  if (bcc && bcc.length) payload.bcc = bcc;
+  if (headers && Object.keys(headers).length) payload.headers = headers;
+  if (attachments && attachments.length) {
+    payload.attachments = attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+    }));
+  }
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = (await res.json().catch(() => ({}))) as {
+    id?: string;
+    message?: string;
+  };
+
+  if (!res.ok) {
+    logger.error({ status: res.status, body }, "Resend send failed");
+    throw new Error(`Resend send failed: ${body?.message || res.status}`);
+  }
+
+  logger.info({ messageId: body.id }, "Email sent via Resend!");
+  return body.id ?? `resend_${Date.now()}`;
+}
+
 export async function sendRawEmail({
   to,
   from,
@@ -211,6 +280,30 @@ export async function sendRawEmail({
   inReplyToMessageId?: string;
   emailId?: string;
 }) {
+  // When a Resend API key is configured, route ALL outbound mail through
+  // Resend instead of SES. This makes the whole app (transactional sends,
+  // campaigns, and double opt-in confirmations) work without an SES setup.
+  if (process.env.RESEND_API_KEY) {
+    return sendRawEmailViaResend({
+      to,
+      from,
+      subject,
+      html,
+      text,
+      replyTo,
+      cc,
+      bcc,
+      attachments,
+      headers: buildHeaders({
+        emailId,
+        headers,
+        unsubUrl,
+        isBulk,
+        inReplyToMessageId,
+      }),
+    });
+  }
+
   const sesClient = getSesClient(region);
 
   const { message: messageStream } = await nodemailer
