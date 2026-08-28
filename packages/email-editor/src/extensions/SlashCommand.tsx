@@ -13,6 +13,8 @@ import {
   ListOrderedIcon,
   RectangleEllipsisIcon,
   SquareSplitVerticalIcon,
+  SquareIcon,
+  Columns2Icon,
   TextIcon,
   TextQuoteIcon,
   UserXIcon,
@@ -227,6 +229,24 @@ const DEFAULT_SLASH_COMMANDS = (uploadImage?: UploadFn): SlashCommandItem[] => [
     icon: <RectangleEllipsisIcon className="h-4 w-4" />,
     command: ({ editor, range }: CommandProps) => {
       editor.chain().focus().deleteRange(range).setButton().run();
+    },
+  },
+  {
+    title: "Card / Section",
+    description: "A colored container with padding and rounded corners.",
+    searchTerms: ["section", "card", "container", "callout", "box"],
+    icon: <SquareIcon className="h-4 w-4" />,
+    command: ({ editor, range }: CommandProps) => {
+      editor.chain().focus().deleteRange(range).setSection().run();
+    },
+  },
+  {
+    title: "Columns",
+    description: "Two side-by-side columns.",
+    searchTerms: ["columns", "column", "grid", "row", "layout"],
+    icon: <Columns2Icon className="h-4 w-4" />,
+    command: ({ editor, range }: CommandProps) => {
+      editor.chain().focus().deleteRange(range).setColumns(2).run();
     },
   },
   {

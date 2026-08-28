@@ -15,6 +15,7 @@ import {
   Preview,
   Row,
   Column,
+  Section,
   render,
   Code,
 } from "jsx-email";
@@ -318,6 +319,63 @@ export class EmailRenderer {
     }
 
     throw new Error(`Node type "${type}" is not supported.`);
+  }
+
+  private section(node: JSONContent, options?: NodeOptions): React.ReactNode {
+    const {
+      backgroundColor = "transparent",
+      textColor,
+      padding = "24",
+      borderRadius = "10",
+      borderWidth = "0",
+      borderColor = "transparent",
+    } = node.attrs || {};
+
+    return (
+      <Section
+        style={{
+          backgroundColor,
+          borderRadius: `${borderRadius}px`,
+          borderStyle: "solid",
+          borderWidth: `${borderWidth}px`,
+          borderColor,
+          marginBottom: "16px",
+          width: "100%",
+        }}
+      >
+        <Container
+          style={{
+            padding: `${padding}px`,
+            color: textColor || undefined,
+          }}
+        >
+          {this.getMappedContent(node, { ...options, parent: node })}
+        </Container>
+      </Section>
+    );
+  }
+
+  private columns(node: JSONContent, options?: NodeOptions): React.ReactNode {
+    return (
+      <Row style={{ marginBottom: "16px" }}>
+        {this.getMappedContent(node, { ...options, parent: node })}
+      </Row>
+    );
+  }
+
+  private column(node: JSONContent, options?: NodeOptions): React.ReactNode {
+    const { width = "auto", verticalAlign = "top" } = node.attrs || {};
+    return (
+      <Column
+        style={{
+          width: width === "auto" ? undefined : width,
+          verticalAlign,
+          paddingRight: "12px",
+        }}
+      >
+        {this.getMappedContent(node, { ...options, parent: node })}
+      </Column>
+    );
   }
 
   private unsubscribeFooter(

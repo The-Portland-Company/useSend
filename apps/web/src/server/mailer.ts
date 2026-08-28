@@ -16,17 +16,50 @@ const getClient = () => {
   return usesend;
 };
 
+/**
+ * Sends an email directly through the Resend REST API when RESEND_API_KEY is
+ * configured. Used to deliver auth/OTP emails for the self-hosted demo without
+ * a full SES setup. Returns true on success, false if not configured or failed.
+ */
+async function sendViaResend(
+  to: string,
+  subject: string,
+  text: string,
+  html: string,
+): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM;
+  if (!apiKey || !from) return false;
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ from, to, subject, text, html }),
+    });
+    if (!res.ok) {
+      logger.error(
+        { status: res.status, body: await res.text() },
+        "Resend send failed",
+      );
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logger.error({ err }, "Resend send threw");
+    return false;
+  }
+}
+
 export async function sendSignUpEmail(
   email: string,
   token: string,
   url: string
 ) {
   const { host } = new URL(url);
-
-  if (env.NODE_ENV === "development") {
-    logger.info({ email, url, token }, "Sending sign in email");
-    return;
-  }
 
   const subject = "Sign in to useSend";
 
@@ -39,6 +72,18 @@ export async function sendSignUpEmail(
 
   // Fallback text version
   const text = `Hey,\n\nYou can sign in to useSend by clicking the below URL:\n${url}\n\nYou can also use this OTP: ${token}\n\nThanks,\nuseSend Team`;
+
+  // Direct Resend delivery for auth emails (used for the self-hosted demo).
+  // Takes precedence over the dev console-log and the SES-based sendMail path.
+  if (await sendViaResend(email, subject, text, html)) {
+    logger.info({ email }, "Sign in email sent via Resend");
+    return;
+  }
+
+  if (env.NODE_ENV === "development") {
+    logger.info({ email, url, token }, "Sending sign in email");
+    return;
+  }
 
   await sendMail(email, subject, text, html);
 }
