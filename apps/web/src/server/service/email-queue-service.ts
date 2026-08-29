@@ -344,19 +344,19 @@ async function executeEmail(job: QueueEmailJob) {
 
   logger.info({ domain }, `Domain`);
 
-  // Resend transport doesn't use SES configuration sets; skip the lookup so
-  // the send isn't dropped when SES isn't configured.
-  const usingResend = !!process.env.RESEND_API_KEY;
-  const configurationSetName = usingResend
-    ? ""
-    : await getConfigurationSetName(
+  // A configuration set is optional — SES sends fine without one. Look it up
+  // when SES has been onboarded for this region, otherwise send without it
+  // (rather than dropping the email).
+  let configurationSetName = "";
+  try {
+    configurationSetName =
+      (await getConfigurationSetName(
         domain?.clickTracking ?? false,
         domain?.openTracking ?? false,
         domain?.region ?? env.AWS_DEFAULT_REGION
-      );
-
-  if (!usingResend && !configurationSetName) {
-    return;
+      )) || "";
+  } catch {
+    configurationSetName = "";
   }
 
   logger.info({ emailId: email.id }, `[EmailQueueService]: Sending email`);
@@ -466,9 +466,10 @@ async function executeEmail(job: QueueEmailJob) {
       data: { sesEmailId: messageId, text, attachments: null, headers: null },
     });
 
-    // SES advances status via SNS callbacks; Resend has no such callback here,
-    // so record the SENT event ourselves to keep the UI status accurate.
-    if (usingResend) {
+    // SES advances status via SNS callbacks tied to a configuration set. When
+    // no config set is attached there are no callbacks, so record the SENT
+    // event ourselves to keep the UI status accurate.
+    if (!configurationSetName) {
       await db.emailEvent.create({
         data: { emailId: email.id, status: "SENT", teamId: email.teamId },
       });
