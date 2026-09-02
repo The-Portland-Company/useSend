@@ -23,16 +23,64 @@ type QueueEmailJob = TeamJob<{
   isBulk?: boolean;
 }>;
 
-function createQueueAndWorker(region: string, quota: number, suffix: string) {
+// SES/AWS error names that are transient — the send should be retried with
+// backoff rather than marking the email permanently FAILED. Everything else
+// (invalid address, message rejected, bad request, etc.) is treated as
+// permanent and dropped after the first attempt.
+const RETRYABLE_SES_ERROR_NAMES = new Set([
+  "ThrottlingException",
+  "Throttling",
+  "TooManyRequestsException",
+  "TooManyRequests",
+  "ServiceUnavailable",
+  "ServiceUnavailableException",
+  "RequestTimeout",
+  "RequestTimeoutException",
+  "TimeoutError",
+  "InternalServerError",
+  "InternalServerErrorException",
+  "InternalFailure",
+]);
+
+function isRetryableSesError(error: any): boolean {
+  const status = error?.$metadata?.httpStatusCode;
+  // 429 (throttling) and any transient 5xx from SES are retryable.
+  if (typeof status === "number" && (status === 429 || status >= 500)) {
+    return true;
+  }
+
+  // AWS SDK v3 flags transient errors; honour it when present.
+  if (error?.$retryable?.throttling === true || error?.retryable === true) {
+    return true;
+  }
+
+  const name = error?.name ?? error?.Code ?? error?.code;
+  return typeof name === "string" && RETRYABLE_SES_ERROR_NAMES.has(name);
+}
+
+function createQueueAndWorker(region: string, rate: number, suffix: string) {
   const connection = getRedis();
 
   const queueName = `${region}-${suffix}`;
 
   const queue = new Queue(queueName, { connection, prefix: BULL_PREFIX, skipVersionCheck: true });
 
+  // `rate` is this worker's share of the account's configured SES send rate
+  // (sesEmailRateLimit), split between the transactional and marketing queues.
+  //
+  // `concurrency` alone is NOT a per-second rate: N concurrent slots can each
+  // finish and pick up a new job within the same second, bursting well above
+  // the SES MaxSendRate and triggering throttling. The `limiter` is the real
+  // governor — it caps job *starts* to `rate` per second. BullMQ's limiter is
+  // enforced per queue across every worker on that queue (Redis-backed), so the
+  // whole region shares one per-second SES budget even with multiple workers.
+  //
+  // Concurrency is kept as a sane upper bound (>= the per-second max) so the
+  // limiter, not concurrency, is the true governor.
   // TODO: Add team context to job data when queueing
   const worker = new Worker(queueName, createWorkerHandler(executeEmail), {
-    concurrency: quota,
+    concurrency: rate,
+    limiter: { max: rate, duration: 1000 },
     connection,
     prefix: BULL_PREFIX,
     skipVersionCheck: true,
@@ -231,7 +279,7 @@ export class EmailQueueService {
         opts: {
           jobId: job.emailId, // Use emailId as jobId
           delay: job.delay,
-          ...DEFAULT_QUEUE_OPTIONS, // Apply default options (attempts, backoff)
+          ...DEFAULT_QUEUE_OPTIONS, // attempts + exponential backoff + retention
         },
       }));
 
@@ -479,6 +527,32 @@ async function executeEmail(job: QueueEmailJob) {
       });
     }
   } catch (error: any) {
+    // BullMQ increments attemptsMade only after this handler settles, so during
+    // this catch it still reflects the count *before* the current run. BullMQ
+    // will retry when `attemptsMade + 1 < attempts`; mirror that to decide
+    // whether another attempt remains.
+    const attempts = job.opts.attempts ?? 1;
+    const willRetry =
+      isRetryableSesError(error) && job.attemptsMade + 1 < attempts;
+
+    if (willRetry) {
+      // Transient SES failure (throttling / 5xx) with attempts remaining.
+      // Re-throw so BullMQ re-enqueues with exponential backoff. Do NOT record
+      // a FAILED event or mutate status here — that would double-record events
+      // across retries and prematurely mark a recoverable email as failed.
+      logger.warn(
+        {
+          emailId: email.id,
+          attempt: job.attemptsMade + 1,
+          attempts,
+          err: error?.toString?.() ?? String(error),
+        },
+        `[EmailQueueService]: Retryable SES error, re-queueing with backoff`
+      );
+      throw error;
+    }
+
+    // Permanent error, or retries exhausted: record the failure once.
     await db.emailEvent.create({
       data: {
         emailId: email.id,
