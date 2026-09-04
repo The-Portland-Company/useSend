@@ -99,6 +99,31 @@ async function prepareCampaignHtml(
   throw new Error("No content added for campaign");
 }
 
+/**
+ * The renderer resolves link/button hrefs against `linkValues` keyed by the
+ * literal placeholder (e.g. "{{reset_url}}"), not by bare variable name, so a
+ * contact variable used as a URL is only replaced when it is present in that
+ * shape too.
+ */
+export function buildCampaignLinkValues(
+  variableValues: Record<string, string | null | undefined>,
+  unsubscribeUrl: string,
+) {
+  const linkValues: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(variableValues)) {
+    if (value !== undefined && value !== null) {
+      linkValues[`{{${key}}}`] = value;
+    }
+  }
+
+  for (const token of CAMPAIGN_UNSUB_PLACEHOLDER_TOKENS) {
+    linkValues[token] = unsubscribeUrl;
+  }
+
+  return linkValues;
+}
+
 async function renderCampaignHtmlForContact({
   campaign,
   contact,
@@ -114,11 +139,6 @@ async function renderCampaignHtmlForContact({
     try {
       const jsonContent = JSON.parse(campaign.content);
       const renderer = new EmailRenderer(jsonContent);
-      const linkValues: Record<string, string> = {};
-
-      for (const token of CAMPAIGN_UNSUB_PLACEHOLDER_TOKENS) {
-        linkValues[token] = unsubscribeUrl;
-      }
 
       const variableValues = createCaseInsensitiveVariableValues({
         email: contact.email,
@@ -146,7 +166,7 @@ async function renderCampaignHtmlForContact({
       return renderer.render({
         shouldReplaceVariableValues: true,
         variableValues,
-        linkValues,
+        linkValues: buildCampaignLinkValues(variableValues, unsubscribeUrl),
       });
     } catch (error) {
       logger.error({ err: error }, "Failed to parse campaign content");
