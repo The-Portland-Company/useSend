@@ -284,3 +284,32 @@ describe("campaign contact subscription changes", () => {
     });
   });
 });
+
+describe("buildCampaignLinkValues", () => {
+  it("exposes contact variables under their {{placeholder}} so button/link URLs are replaced", async () => {
+    const { buildCampaignLinkValues } = await import("./campaign-service");
+
+    const linkValues = buildCampaignLinkValues(
+      {
+        email: "dan@example.com",
+        reset_url: "https://nueraheat.net/api/marketing/reset?t=abc",
+        firstName: null,
+        lastName: undefined,
+      },
+      "https://mail.example.com/unsubscribe?id=1",
+    );
+
+    expect(linkValues["{{reset_url}}"]).toBe(
+      "https://nueraheat.net/api/marketing/reset?t=abc",
+    );
+    expect(linkValues["{{email}}"]).toBe("dan@example.com");
+    expect(linkValues).not.toHaveProperty("{{firstName}}");
+    expect(linkValues).not.toHaveProperty("{{lastName}}");
+    expect(linkValues["{{unsend_unsubscribe_url}}"]).toBe(
+      "https://mail.example.com/unsubscribe?id=1",
+    );
+    expect(linkValues["{{usesend_unsubscribe_url}}"]).toBe(
+      "https://mail.example.com/unsubscribe?id=1",
+    );
+  });
+});
