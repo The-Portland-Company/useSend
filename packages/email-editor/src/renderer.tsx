@@ -177,6 +177,9 @@ export class EmailRenderer {
   private shouldReplaceVariableValues = false;
   private variableValues: Record<string, string | null> = {};
   private linkValues: Record<string, string | null> = {};
+  // Set per text node by renderMark: an explicit textStyle color that a link
+  // mark on the same node should adopt instead of the default theme link color.
+  private currentTextStyleColor: string | undefined;
 
   constructor(
     private readonly email: JSONContent = { type: "doc", content: [] },
@@ -236,7 +239,7 @@ export class EmailRenderer {
           />
           <style
             dangerouslySetInnerHTML={{
-              __html: `blockquote,h1,h2,h3,img,li,ol,p,ul{margin-top:0;margin-bottom:0} pre{padding:16px;border-radius:6px}`,
+              __html: `blockquote,h1,h2,h3,img,li,ol,p,ul{margin-top:0;margin-bottom:0} pre{padding:16px;border-radius:6px} a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important;font-size:inherit!important;font-family:inherit!important;font-weight:inherit!important;line-height:inherit!important}`,
             }}
           />
           <meta content="width=device-width" name="viewport" />
@@ -276,6 +279,13 @@ export class EmailRenderer {
     // It will wrap the text with the corresponding mark type
     const text = node.text || <>&nbsp;</>;
     const marks = node.marks || [];
+
+    // A link and a textStyle color mark can coexist on the same node. The
+    // author's explicit textStyle color should win over the default theme link
+    // color, so surface it to the link handler for this node.
+    const textStyleColor = marks.find((m) => m.type === "textStyle")?.attrs
+      ?.color as string | undefined;
+    this.currentTextStyleColor = textStyleColor;
 
     return marks.reduce<React.ReactNode>(
       (acc, mark) => {
@@ -474,7 +484,8 @@ export class EmailRenderer {
         style={{
           fontWeight: 500,
           textDecoration: "underline",
-          color: this.config.theme?.colors?.link,
+          color:
+            this.currentTextStyleColor ?? this.config.theme?.colors?.link,
         }}
         target={target}
       >
