@@ -9,6 +9,7 @@ import {
   LayoutTemplate,
   Mail,
   Server,
+  Flame,
   Volume2,
   BookOpenText,
   BarChart3,
@@ -196,6 +197,25 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {env.NEXT_PUBLIC_WARMUP_URL ? (
+          <SidebarGroup>
+            <SidebarGroupLabel>
+              <span>Deliverability</span>
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild tooltip="Email Warmup">
+                    <Link href={env.NEXT_PUBLIC_WARMUP_URL} target="_blank">
+                      <Flame />
+                      <span>Email Warmup</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
         <SidebarGroup>
           <SidebarGroupLabel>
             <span>Settings</span>
