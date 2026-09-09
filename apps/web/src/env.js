@@ -90,6 +90,9 @@ export const env = createEnv({
       .transform((str) => str === "true"),
     NEXT_PUBLIC_APP_VERSION: z.string().optional(),
     NEXT_PUBLIC_GIT_SHA: z.string().optional(),
+    // External Email Warmup service URL. When set, a "Email Warmup" nav item
+    // links out to it. Unset (default) hides the item entirely.
+    NEXT_PUBLIC_WARMUP_URL: z.string().url().optional(),
   },
 
   /**
@@ -117,6 +120,7 @@ export const env = createEnv({
     NEXT_PUBLIC_IS_CLOUD: process.env.NEXT_PUBLIC_IS_CLOUD,
     NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION,
     NEXT_PUBLIC_GIT_SHA: process.env.NEXT_PUBLIC_GIT_SHA,
+    NEXT_PUBLIC_WARMUP_URL: process.env.NEXT_PUBLIC_WARMUP_URL,
     ADMIN_EMAIL: process.env.ADMIN_EMAIL,
     FOUNDER_EMAIL: process.env.FOUNDER_EMAIL,
     DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL,
