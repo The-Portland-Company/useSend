@@ -37,6 +37,12 @@ export const env = createEnv({
     UNSEND_API_KEY: z.string().optional(),
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
+    // The Portland Company (TPC) OIDC SSO. All three are optional; the provider
+    // is only registered when all three are present, so the app builds/runs fine
+    // when they're unset.
+    AUTH_TPC_ISSUER: z.string().url().optional(),
+    AUTH_TPC_ID: z.string().optional(),
+    AUTH_TPC_SECRET: z.string().optional(),
     AWS_SES_ENDPOINT: z.string().optional(),
     AWS_SNS_ENDPOINT: z.string().optional(),
     AWS_DEFAULT_REGION: z
@@ -109,6 +115,9 @@ export const env = createEnv({
     UNSEND_API_KEY: process.env.UNSEND_API_KEY,
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    AUTH_TPC_ISSUER: process.env.AUTH_TPC_ISSUER,
+    AUTH_TPC_ID: process.env.AUTH_TPC_ID,
+    AUTH_TPC_SECRET: process.env.AUTH_TPC_SECRET,
     AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
     AWS_SES_ENDPOINT: process.env.AWS_SES_ENDPOINT,
     AWS_SNS_ENDPOINT: process.env.AWS_SNS_ENDPOINT,
