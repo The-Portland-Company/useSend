@@ -153,6 +153,36 @@ function getProviders() {
     );
   }
 
+  if (env.AUTH_TPC_ISSUER && env.AUTH_TPC_ID && env.AUTH_TPC_SECRET) {
+    providers.push({
+      id: "tpc",
+      name: "The Portland Company",
+      type: "oauth",
+      wellKnown: `${env.AUTH_TPC_ISSUER.replace(/\/$/, "")}/.well-known/openid-configuration`,
+      clientId: env.AUTH_TPC_ID,
+      clientSecret: env.AUTH_TPC_SECRET,
+      allowDangerousEmailAccountLinking: true,
+      authorization: {
+        params: { scope: "openid profile email offline_access" },
+      },
+      idToken: true,
+      checks: ["pkce", "state"],
+      profile(profile) {
+        // isBetaUser / isAdmin / isWaitlisted are required by our augmented
+        // User type but are actually derived later by the adapter/events and
+        // session callback; the defaults here are placeholders.
+        return {
+          id: profile.sub,
+          email: profile.email,
+          name: profile.name,
+          isBetaUser: false,
+          isAdmin: false,
+          isWaitlisted: false,
+        };
+      },
+    });
+  }
+
   if (env.FROM_EMAIL) {
     providers.push(
       EmailProvider({
