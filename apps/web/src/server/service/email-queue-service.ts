@@ -91,6 +91,7 @@ function createQueueAndWorker(region: string, rate: number, suffix: string) {
 
 export class EmailQueueService {
   private static initialized = false;
+  private static initPromise: Promise<void> | null = null;
   public static transactionalQueue = new Map<string, Queue<QueueEmailJob>>();
   private static transactionalWorker = new Map<string, Worker>();
   public static marketingQueue = new Map<string, Queue<QueueEmailJob>>();
@@ -350,15 +351,31 @@ export class EmailQueueService {
   }
 
   public static async init() {
-    const sesSettings = await db.sesSetting.findMany();
-    for (const sesSetting of sesSettings) {
-      this.initializeQueue(
-        sesSetting.region,
-        sesSetting.sesEmailRateLimit,
-        sesSetting.transactionalQuota
-      );
-    }
-    this.initialized = true;
+    if (this.initialized) return;
+    // Dedupe concurrent callers: a campaign batch fires hundreds of
+    // queueEmail() calls at once, and without this they each race init(),
+    // some reading the queue map before it's populated -> "Queue for region
+    // not found" and mass FAILED sends on the first batch after a restart.
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = (async () => {
+      const sesSettings = await db.sesSetting.findMany();
+      for (const sesSetting of sesSettings) {
+        this.initializeQueue(
+          sesSetting.region,
+          sesSetting.sesEmailRateLimit,
+          sesSetting.transactionalQuota
+        );
+      }
+      // Only latch as initialized once queues actually exist. If a boot races
+      // ahead of SES config (empty result), stay uninitialized so the next
+      // call retries instead of caching an empty queue map forever.
+      if (sesSettings.length > 0) {
+        this.initialized = true;
+      }
+    })().finally(() => {
+      this.initPromise = null;
+    });
+    return this.initPromise;
   }
 }
 
