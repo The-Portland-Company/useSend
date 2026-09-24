@@ -1,0 +1,26 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - img "The Portland Company" [ref=e5]
+    - generic [ref=e6]:
+      - heading "Welcome Back" [level=1] [ref=e7]
+      - paragraph [ref=e8]: Sign in to your account
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - textbox "Email address" [ref=e11]:
+          - /placeholder: Enter your email
+        - generic: Email address
+      - generic [ref=e12]:
+        - textbox "Password" [ref=e13]:
+          - /placeholder: Enter your password
+        - generic: Password
+        - button "Show password" [ref=e14]
+      - button "Sign in" [ref=e18]
+    - link "Forgot your password?" [ref=e20] [cursor=pointer]:
+      - /url: /forgot
+    - generic [ref=e22]:
+      - generic [ref=e23]: Appearance
+      - group "Appearance" [ref=e24]:
+        - button "Light" [ref=e25]
+        - button "System" [pressed] [ref=e26]
+        - button "Dark" [ref=e27]
+  - alert [ref=e28]
