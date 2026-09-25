@@ -169,7 +169,7 @@ export const adminRouter = createTRPCRouter({
       });
 
       const founderEmail = env.FOUNDER_EMAIL ?? undefined;
-      const fallbackFrom = env.FROM_EMAIL ?? env.ADMIN_EMAIL ?? undefined;
+      const fallbackFrom = env.FROM_EMAIL ?? undefined;
 
       const shouldSendAcceptanceEmail =
         existingUser.isWaitlisted &&
@@ -280,7 +280,7 @@ export const adminRouter = createTRPCRouter({
       }
 
       const founderEmail = env.FOUNDER_EMAIL ?? undefined;
-      const fallbackFrom = env.FROM_EMAIL ?? env.ADMIN_EMAIL ?? undefined;
+      const fallbackFrom = env.FROM_EMAIL ?? undefined;
 
       const replyTo = founderEmail ?? fallbackFrom;
 

@@ -85,8 +85,10 @@ model User {
   emailVerified    DateTime?
   image            String?
   isBetaUser       Boolean    @default(false)
+  isAdmin          Boolean    @default(false)
   isWaitlisted     Boolean    @default(false)
   createdAt        DateTime   @default(now())
+  tpcSub           String?    @unique
   accounts         Account[]
   sessions         Session[]
   teamUsers        TeamUser[]
@@ -112,6 +114,7 @@ model Team {
   isVerified       Boolean           @default(false)
   dailyEmailLimit  Int               @default(10000)
   isBlocked        Boolean           @default(false)
+  tpcOrgId         String?
   teamUsers        TeamUser[]
   domains          Domain[]
   apiKeys          ApiKey[]
@@ -125,6 +128,8 @@ model Team {
   suppressionList  SuppressionList[]
   webhookEndpoints Webhook[]
   webhookCalls     WebhookCall[]
+
+  @@index([tpcOrgId])
 }
 
 model TeamInvite {

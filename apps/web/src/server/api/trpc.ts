@@ -265,7 +265,9 @@ export const templateProcedure = teamProcedure
  * To manage application settings, for hosted version, authenticated users will be considered as admin
  */
 export const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-  if (env.NEXT_PUBLIC_IS_CLOUD && ctx.session.user.email !== env.ADMIN_EMAIL) {
+  // isAdmin is derived from the TPC Auth org role (see server/auth.ts) for
+  // cloud sign-ins, replacing the old ADMIN_EMAIL allowlist.
+  if (env.NEXT_PUBLIC_IS_CLOUD && !ctx.session.user.isAdmin) {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
   return next();

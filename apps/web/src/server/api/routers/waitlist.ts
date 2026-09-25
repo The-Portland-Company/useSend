@@ -29,10 +29,10 @@ export const waitlistRouter = createTRPCRouter({
 
       const { user } = ctx.session;
 
-      const founderEmail = env.FOUNDER_EMAIL ?? env.ADMIN_EMAIL;
+      const founderEmail = env.FOUNDER_EMAIL;
 
       if (!founderEmail) {
-        logger.error("FOUNDER_EMAIL/ADMIN_EMAIL is not configured; skipping waitlist notification");
+        logger.error("FOUNDER_EMAIL is not configured; skipping waitlist notification");
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Waitlist notifications are not configured",

@@ -4,6 +4,7 @@ import {
   type Account,
   type DefaultSession,
   type NextAuthOptions,
+  type Profile,
 } from "next-auth";
 import { type Adapter, type AdapterUser } from "next-auth/adapters";
 import GitHubProvider from "next-auth/providers/github";
@@ -16,6 +17,33 @@ import { env } from "~/env";
 import { db } from "~/server/db";
 
 const GITHUB_OAUTH_ISSUER = "https://github.com/login/oauth";
+
+/**
+ * TPC Auth org slug for The Portland Company itself. Roles at or above
+ * `TPC_ADMIN_MIN_ROLE` in this org make the person an useSend admin, replacing
+ * the old `ADMIN_EMAIL` allowlist -- the role now lives in the token, not in
+ * this codebase.
+ */
+const TPC_ORG_SLUG = "tpc";
+const TPC_ADMIN_ROLES = new Set(["admin", "owner"]);
+
+interface TpcOrgClaim {
+  slug?: string;
+  role?: string;
+}
+
+interface TpcProfile extends Profile {
+  sub: string;
+  picture?: string;
+  orgs?: TpcOrgClaim[];
+}
+
+function isTpcAdmin(profile: TpcProfile): boolean {
+  const orgs = profile.orgs ?? [];
+  return orgs.some(
+    (org) => org.slug === TPC_ORG_SLUG && TPC_ADMIN_ROLES.has(org.role ?? ""),
+  );
+}
 
 /**
  * PostgreSQL advisory-lock namespace for self-hosted user creation.
@@ -39,6 +67,15 @@ export async function canRegisterSelfHostedUser(
   email?: string | null,
   account?: Pick<Account, "provider" | "providerAccountId" | "type"> | null,
 ) {
+  // TPC Auth already gated this sign-in: ENFORCE_APP_GRANTS is on in
+  // production, so a person only gets here after TPC Auth granted them
+  // access to the "usesend" app. Re-checking invites/waitlists for a TPC
+  // sign-in would be duplicate authorization logic -- the grant is the
+  // authorization.
+  if (account?.provider === "tpc") {
+    return true;
+  }
+
   if (env.NEXT_PUBLIC_IS_CLOUD) {
     return true;
   }
@@ -123,8 +160,16 @@ declare module "next-auth" {
  * Auth providers
  */
 
-function getProviders() {
+export function getProviders() {
   const providers: Provider[] = [];
+
+  // GitHub/Google/email sign-in are for community self-hosted installs only,
+  // which have no access to TPC Auth (it is closed and invite-only to The
+  // Portland Company). The company's own hosted deployment
+  // (NEXT_PUBLIC_IS_CLOUD) authenticates exclusively through TPC Auth below.
+  if (env.NEXT_PUBLIC_IS_CLOUD) {
+    return getTpcProviders();
+  }
 
   if (env.GITHUB_ID && env.GITHUB_SECRET) {
     providers.push(
@@ -153,34 +198,9 @@ function getProviders() {
     );
   }
 
-  if (env.AUTH_TPC_ISSUER && env.AUTH_TPC_ID && env.AUTH_TPC_SECRET) {
-    providers.push({
-      id: "tpc",
-      name: "The Portland Company",
-      type: "oauth",
-      wellKnown: `${env.AUTH_TPC_ISSUER.replace(/\/$/, "")}/.well-known/openid-configuration`,
-      clientId: env.AUTH_TPC_ID,
-      clientSecret: env.AUTH_TPC_SECRET,
-      allowDangerousEmailAccountLinking: true,
-      authorization: {
-        params: { scope: "openid profile email offline_access" },
-      },
-      idToken: true,
-      checks: ["pkce", "state"],
-      profile(profile) {
-        // isBetaUser / isAdmin / isWaitlisted are required by our augmented
-        // User type but are actually derived later by the adapter/events and
-        // session callback; the defaults here are placeholders.
-        return {
-          id: profile.sub,
-          email: profile.email,
-          name: profile.name,
-          isBetaUser: false,
-          isAdmin: false,
-          isWaitlisted: false,
-        };
-      },
-    });
+  const tpc = tpcProvider();
+  if (tpc) {
+    providers.push(tpc);
   }
 
   if (env.FROM_EMAIL) {
@@ -205,21 +225,104 @@ function getProviders() {
 }
 
 /**
+ * The single sign-in method for the company's own hosted deployment: TPC
+ * Auth, via OIDC discovery + authorization code + PKCE (all handled by
+ * next-auth's generic OAuth provider). `resource` binds the returned access
+ * token's audience to this app so it can only be replayed against useSend.
+ */
+function tpcProvider(): Provider | null {
+  if (!(env.AUTH_TPC_ISSUER && env.AUTH_TPC_ID && env.AUTH_TPC_SECRET)) {
+    return null;
+  }
+
+  const issuer = env.AUTH_TPC_ISSUER.replace(/\/$/, "");
+
+  return {
+    id: "tpc",
+    name: "The Portland Company",
+    type: "oauth",
+    wellKnown: `${issuer}/.well-known/openid-configuration`,
+    clientId: env.AUTH_TPC_ID,
+    clientSecret: env.AUTH_TPC_SECRET,
+    allowDangerousEmailAccountLinking: true,
+    authorization: {
+      params: {
+        scope: "openid profile email offline_access",
+        resource: env.AUTH_TPC_RESOURCE,
+      },
+    },
+    idToken: true,
+    checks: ["pkce", "state"],
+    profile(profile: TpcProfile) {
+      // isBetaUser / isWaitlisted are vestigial for TPC sign-ins: TPC Auth's
+      // app grant (ENFORCE_APP_GRANTS) is the only gate now, so nobody who
+      // reaches this callback is waitlisted. isAdmin is refreshed from
+      // ctx.orgs on every sign-in in the `signIn` callback below, since a
+      // role change shouldn't need a new account.
+      return {
+        // NextAuth only uses this as a placeholder until the Prisma adapter
+        // creates/looks up the real (numeric, DB-assigned) user id; the
+        // augmented `User.id: number` type doesn't reflect that, and the
+        // inline-object providers elsewhere in this file get away with the
+        // same mismatch only because object-literal methods are checked
+        // bivariantly. Cast rather than change runtime behavior.
+        id: profile.sub as unknown as number,
+        email: profile.email,
+        name: profile.name,
+        image: profile.picture,
+        isBetaUser: true,
+        isAdmin: isTpcAdmin(profile),
+        isWaitlisted: false,
+      };
+    },
+  };
+}
+
+function getTpcProviders(): Provider[] {
+  const provider = tpcProvider();
+  if (!provider) {
+    if (process.env.SKIP_ENV_VALIDATION === "true") {
+      return [];
+    }
+    throw new Error(
+      "AUTH_TPC_ISSUER/AUTH_TPC_ID/AUTH_TPC_SECRET are required when NEXT_PUBLIC_IS_CLOUD is set",
+    );
+  }
+  return [provider];
+}
+
+/**
  * Options for NextAuth.js used to configure adapters, providers, callbacks, etc.
  *
  * @see https://next-auth.js.org/configuration/options
  */
 export const authOptions: NextAuthOptions = {
   callbacks: {
-    signIn: async ({ user, account }) =>
-      canRegisterSelfHostedUser(user.email, account),
+    signIn: async ({ user, account, profile }) => {
+      const allowed = await canRegisterSelfHostedUser(user.email, account);
+      if (!allowed) {
+        return false;
+      }
+
+      // Refresh isAdmin from the token's org role on every TPC sign-in, not
+      // just at account creation, so a role change at the IdP takes effect
+      // on the person's next login instead of needing a new local account.
+      if (account?.provider === "tpc" && typeof user.id === "number") {
+        await db.user.update({
+          where: { id: user.id },
+          data: { isAdmin: isTpcAdmin(profile as TpcProfile) },
+        });
+      }
+
+      return true;
+    },
     session: ({ session, user }) => ({
       ...session,
       user: {
         ...session.user,
         id: user.id,
         isBetaUser: user.isBetaUser,
-        isAdmin: user.email === env.ADMIN_EMAIL,
+        isAdmin: user.isAdmin,
         isWaitlisted: user.isWaitlisted,
       },
     }),

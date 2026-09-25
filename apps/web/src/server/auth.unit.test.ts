@@ -6,6 +6,10 @@ const mocks = vi.hoisted(() => {
     GITHUB_ID: "github-client-id",
     GITHUB_SECRET: "github-client-secret",
     NEXT_PUBLIC_IS_CLOUD: true,
+    AUTH_TPC_ISSUER: "https://auth.theportlandcompany.com",
+    AUTH_TPC_ID: "tpc-client-id",
+    AUTH_TPC_SECRET: "tpc-client-secret",
+    AUTH_TPC_RESOURCE: "https://emailmarketing.theportlandcompany.com",
   };
 
   const baseCreateUser = vi.fn();
@@ -90,6 +94,7 @@ vi.mock("~/env", () => ({ env: mocks.env }));
 import {
   authOptions,
   canRegisterSelfHostedUser,
+  getProviders,
   SelfHostedRegistrationError,
 } from "~/server/auth";
 
@@ -122,19 +127,29 @@ describe("authOptions", () => {
     mocks.transactionUserCreate.mockResolvedValue({ ...newUser, id: 1 });
   });
 
-  it("configures the GitHub provider with an explicit issuer", () => {
+  // `authOptions.providers` is built once at module import time, with
+  // NEXT_PUBLIC_IS_CLOUD=true (see the hoisted env mock above) -- this app's
+  // hosted deployment. Self-hosted installs (IS_CLOUD=false) get GitHub, and
+  // that codepath is exercised directly by getProviders() rather than here.
+  it("registers only the TPC Auth provider for the hosted (cloud) deployment, not GitHub", () => {
     const githubProvider = authOptions.providers.find(
       (provider) => provider.id === "github",
     );
+    const tpcProvider = authOptions.providers.find(
+      (provider) => provider.id === "tpc",
+    );
 
-    expect(githubProvider).toMatchObject({
-      id: "github",
-      options: {
-        clientId: "github-client-id",
-        clientSecret: "github-client-secret",
-        issuer: "https://github.com/login/oauth",
-      },
-    });
+    expect(githubProvider).toBeUndefined();
+    expect(tpcProvider).toBeDefined();
+  });
+
+  it("registers GitHub, Google, TPC and email for self-hosted installs", () => {
+    mocks.env.NEXT_PUBLIC_IS_CLOUD = false;
+
+    const providers = getProviders();
+
+    expect(providers.find((provider) => provider.id === "github")).toBeDefined();
+    expect(providers.find((provider) => provider.id === "tpc")).toBeDefined();
   });
 
   describe("self-hosted registration policy", () => {

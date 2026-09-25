@@ -41,6 +41,7 @@
         "AUTH_TPC_ISSUER",
         "AUTH_TPC_ID",
         "AUTH_TPC_SECRET",
+        "AUTH_TPC_RESOURCE",
         "NEXT_PUBLIC_IS_CLOUD",
         "NEXT_PUBLIC_WARMUP_URL",
         "S3_COMPATIBLE_ACCESS_KEY",

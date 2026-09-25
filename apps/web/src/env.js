@@ -37,12 +37,20 @@ export const env = createEnv({
     UNSEND_API_KEY: z.string().optional(),
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
-    // The Portland Company (TPC) OIDC SSO. All three are optional; the provider
-    // is only registered when all three are present, so the app builds/runs fine
-    // when they're unset.
+    // TPC Auth (the-portland-company's own IdP). This is the *only* sign-in
+    // method for the company's hosted deployment (NEXT_PUBLIC_IS_CLOUD) --
+    // getTpcProviders() in server/auth.ts throws at startup if these are
+    // missing while cloud is set. They stay optional here so self-hosted
+    // installs, which have no access to this closed IdP, build and run fine
+    // with GitHub/Google/email sign-in instead.
     AUTH_TPC_ISSUER: z.string().url().optional(),
     AUTH_TPC_ID: z.string().optional(),
     AUTH_TPC_SECRET: z.string().optional(),
+    // The audience (resource) this app's TPC access tokens must be bound to.
+    AUTH_TPC_RESOURCE: z
+      .string()
+      .url()
+      .default("https://emailmarketing.theportlandcompany.com"),
     AWS_SES_ENDPOINT: z.string().optional(),
     AWS_SNS_ENDPOINT: z.string().optional(),
     AWS_DEFAULT_REGION: z
@@ -59,7 +67,6 @@ export const env = createEnv({
       .default("0")
       .transform((str) => parseInt(str, 10)),
     FROM_EMAIL: z.string().optional(),
-    ADMIN_EMAIL: z.string().optional(),
     FOUNDER_EMAIL: z.string().optional(),
     DISCORD_WEBHOOK_URL: z.string().optional(),
     REDIS_URL: z.string(),
@@ -121,6 +128,7 @@ export const env = createEnv({
     AUTH_TPC_ISSUER: process.env.AUTH_TPC_ISSUER,
     AUTH_TPC_ID: process.env.AUTH_TPC_ID,
     AUTH_TPC_SECRET: process.env.AUTH_TPC_SECRET,
+    AUTH_TPC_RESOURCE: process.env.AUTH_TPC_RESOURCE,
     AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
     AWS_SES_ENDPOINT: process.env.AWS_SES_ENDPOINT,
     AWS_SNS_ENDPOINT: process.env.AWS_SNS_ENDPOINT,
@@ -130,7 +138,6 @@ export const env = createEnv({
     NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION,
     NEXT_PUBLIC_GIT_SHA: process.env.NEXT_PUBLIC_GIT_SHA,
     NEXT_PUBLIC_WARMUP_URL: process.env.NEXT_PUBLIC_WARMUP_URL,
-    ADMIN_EMAIL: process.env.ADMIN_EMAIL,
     FOUNDER_EMAIL: process.env.FOUNDER_EMAIL,
     DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL,
     REDIS_URL: process.env.REDIS_URL,
