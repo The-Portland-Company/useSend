@@ -24,7 +24,7 @@ const GITHUB_OAUTH_ISSUER = "https://github.com/login/oauth";
  * the old `ADMIN_EMAIL` allowlist -- the role now lives in the token, not in
  * this codebase.
  */
-const TPC_ORG_SLUG = "tpc";
+const TPC_ORG_SLUG = "the-portland-company";
 const TPC_ADMIN_ROLES = new Set(["admin", "owner"]);
 
 interface TpcOrgClaim {
