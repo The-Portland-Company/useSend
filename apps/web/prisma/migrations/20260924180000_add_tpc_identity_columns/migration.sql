@@ -1,6 +1,6 @@
 -- Additive only. Adds TPC Auth identity columns alongside the existing local
 -- identity columns; nothing is dropped or backfilled here. See
--- prisma/migrations/deferred/20260924180100_drop_legacy_identity/migration.sql
+-- prisma/deferred-migrations/20260924180100_drop_legacy_identity.sql
 -- for the (unapplied) follow-up that removes the local columns once every
 -- User/Team row has been linked to its TPC `sub` / org id.
 

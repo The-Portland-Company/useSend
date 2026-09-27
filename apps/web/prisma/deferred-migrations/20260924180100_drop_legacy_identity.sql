@@ -1,5 +1,5 @@
 -- DEFERRED. Not applied, not part of `prisma migrate deploy`'s migrations
--- directory (kept in prisma/migrations/deferred/ on purpose so tooling never
+-- directory (kept in prisma/deferred-migrations/ on purpose so tooling never
 -- picks it up automatically). Run by hand, once, after every cloud user who
 -- previously signed in with GitHub/Google/email has completed at least one
 -- TPC Auth sign-in (linked automatically by matching email, since the "tpc"
