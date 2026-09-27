@@ -143,13 +143,24 @@ describe("authOptions", () => {
     expect(tpcProvider).toBeDefined();
   });
 
-  it("registers GitHub, Google, TPC and email for self-hosted installs", () => {
+  it("uses TPC Auth alone whenever it is configured, even with cloud off", () => {
     mocks.env.NEXT_PUBLIC_IS_CLOUD = false;
 
     const providers = getProviders();
 
+    expect(providers.map((provider) => provider.id)).toEqual(["tpc"]);
+  });
+
+  it("registers GitHub for self-hosted installs without TPC Auth", () => {
+    mocks.env.NEXT_PUBLIC_IS_CLOUD = false;
+    const { AUTH_TPC_ISSUER } = mocks.env;
+    mocks.env.AUTH_TPC_ISSUER = undefined;
+
+    const providers = getProviders();
+    mocks.env.AUTH_TPC_ISSUER = AUTH_TPC_ISSUER;
+
     expect(providers.find((provider) => provider.id === "github")).toBeDefined();
-    expect(providers.find((provider) => provider.id === "tpc")).toBeDefined();
+    expect(providers.find((provider) => provider.id === "tpc")).toBeUndefined();
   });
 
   describe("self-hosted registration policy", () => {

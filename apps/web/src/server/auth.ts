@@ -167,7 +167,9 @@ export function getProviders() {
   // which have no access to TPC Auth (it is closed and invite-only to The
   // Portland Company). The company's own hosted deployment
   // (NEXT_PUBLIC_IS_CLOUD) authenticates exclusively through TPC Auth below.
-  if (env.NEXT_PUBLIC_IS_CLOUD) {
+  // The company's own deployment runs with NEXT_PUBLIC_IS_CLOUD off, so TPC
+  // Auth being configured is also enough to make it the only sign-in method.
+  if (env.NEXT_PUBLIC_IS_CLOUD || tpcProvider()) {
     return getTpcProviders();
   }
 
@@ -196,11 +198,6 @@ export function getProviders() {
         allowDangerousEmailAccountLinking: true,
       }),
     );
-  }
-
-  const tpc = tpcProvider();
-  if (tpc) {
-    providers.push(tpc);
   }
 
   if (env.FROM_EMAIL) {
