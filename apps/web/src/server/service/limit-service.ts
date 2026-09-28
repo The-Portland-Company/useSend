@@ -2,7 +2,7 @@ import { PLAN_LIMITS, LimitReason } from "~/lib/constants/plans";
 import { env } from "~/env";
 import { getThisMonthUsage } from "./usage-service";
 import { TeamService } from "./team-service";
-import { withCache } from "../redis";
+import { withCache, getRedis, redisKey } from "../redis";
 import { db } from "../db";
 import { logger } from "../logger/log";
 import { Plan } from "@prisma/client";
@@ -14,6 +14,45 @@ function isLimitExceeded(current: number, limit: number): boolean {
 
 function getActivePlan(team: { plan: Plan; isActive: boolean }): Plan {
   return team.isActive ? team.plan : "FREE";
+}
+
+// UTC calendar day, e.g. "2026-09-28".
+function dayBucket(date: Date = new Date()): string {
+  return date.toISOString().slice(0, 10);
+}
+
+// Whole-minute bucket since epoch, e.g. 29234123.
+function minuteBucket(date: Date = new Date()): number {
+  return Math.floor(date.getTime() / 60_000);
+}
+
+async function peekCount(key: string): Promise<number> {
+  const redis = getRedis();
+  const value = await redis.get(redisKey(key));
+  return value ? parseInt(value, 10) : 0;
+}
+
+async function incrWithExpire(key: string, ttlSeconds: number): Promise<number> {
+  const redis = getRedis();
+  const prefixedKey = redisKey(key);
+  const count = await redis.incr(prefixedKey);
+  if (count === 1) {
+    await redis.expire(prefixedKey, ttlSeconds);
+  }
+  return count;
+}
+
+type SendCapResult = {
+  isLimitReached: boolean;
+  reason?: LimitReason;
+  limit?: number;
+};
+
+function sendCapKeys(teamId: number) {
+  return {
+    dayKey: `send-cap:day:${teamId}:${dayBucket()}`,
+    minKey: `send-cap:min:${teamId}:${minuteBucket()}`,
+  };
 }
 
 export class LimitService {
@@ -131,6 +170,76 @@ export class LimitService {
     };
   }
 
+  /**
+   * Read-only check of the hard per-team send caps (daily + per-minute).
+   * Does not consume budget -- safe to call for an early/synchronous 429
+   * before an email is queued. Enforced regardless of NEXT_PUBLIC_IS_CLOUD.
+   */
+  static async checkTeamSendCap(teamId: number): Promise<SendCapResult> {
+    const dailyLimit = env.USESEND_TEAM_DAILY_SEND_LIMIT;
+    const perMinuteLimit = env.USESEND_TEAM_PER_MINUTE_SEND_LIMIT;
+    const { dayKey, minKey } = sendCapKeys(teamId);
+
+    const [dayCount, minCount] = await Promise.all([
+      peekCount(dayKey),
+      peekCount(minKey),
+    ]);
+
+    if (dailyLimit >= 0 && dayCount >= dailyLimit) {
+      return {
+        isLimitReached: true,
+        reason: LimitReason.EMAIL_TEAM_DAILY_CAP_REACHED,
+        limit: dailyLimit,
+      };
+    }
+
+    if (perMinuteLimit >= 0 && minCount >= perMinuteLimit) {
+      return {
+        isLimitReached: true,
+        reason: LimitReason.EMAIL_TEAM_PER_MINUTE_CAP_REACHED,
+        limit: perMinuteLimit,
+      };
+    }
+
+    return { isLimitReached: false };
+  }
+
+  /**
+   * Consumes one unit of the per-team send caps (daily + per-minute) and
+   * reports whether that consumption exceeded either cap. Call this exactly
+   * once per email, right before it is actually handed to the sending
+   * provider (see EmailQueueService), so campaign sends and transactional
+   * sends are counted the same way. Enforced regardless of NEXT_PUBLIC_IS_CLOUD.
+   */
+  static async consumeTeamSendCap(teamId: number): Promise<SendCapResult> {
+    const dailyLimit = env.USESEND_TEAM_DAILY_SEND_LIMIT;
+    const perMinuteLimit = env.USESEND_TEAM_PER_MINUTE_SEND_LIMIT;
+    const { dayKey, minKey } = sendCapKeys(teamId);
+
+    const [dayCount, minCount] = await Promise.all([
+      incrWithExpire(dayKey, 60 * 60 * 26), // a bit over a day, covers clock skew
+      incrWithExpire(minKey, 90), // a bit over a minute
+    ]);
+
+    if (dailyLimit >= 0 && dayCount > dailyLimit) {
+      return {
+        isLimitReached: true,
+        reason: LimitReason.EMAIL_TEAM_DAILY_CAP_REACHED,
+        limit: dailyLimit,
+      };
+    }
+
+    if (perMinuteLimit >= 0 && minCount > perMinuteLimit) {
+      return {
+        isLimitReached: true,
+        reason: LimitReason.EMAIL_TEAM_PER_MINUTE_CAP_REACHED,
+        limit: perMinuteLimit,
+      };
+    }
+
+    return { isLimitReached: false };
+  }
+
   // Checks email sending limits and also triggers usage notifications.
   // Side effects:
   // - Sends "warning" emails when nearing daily/monthly limits (rate-limited in TeamService)
@@ -142,7 +251,19 @@ export class LimitService {
     reason?: LimitReason;
     available?: number;
   }> {
-    // Limits only apply in cloud mode
+    // Hard per-team send caps apply regardless of cloud mode. Consumed here
+    // (rather than just peeked) because this is the single choke point every
+    // email -- transactional or campaign -- passes through right before send.
+    const capCheck = await this.consumeTeamSendCap(teamId);
+    if (capCheck.isLimitReached) {
+      return {
+        isLimitReached: true,
+        limit: capCheck.limit ?? 0,
+        reason: capCheck.reason,
+      };
+    }
+
+    // Plan-based limits only apply in cloud mode
     if (!env.NEXT_PUBLIC_IS_CLOUD) {
       return { isLimitReached: false, limit: -1 };
     }

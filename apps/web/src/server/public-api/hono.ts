@@ -13,7 +13,10 @@ import { logger } from "../logger/log";
 // Define AppEnv for Hono context
 export type AppEnv = {
   Variables: {
-    team: Team & { apiKeyId: number; apiKey: { domainId: number | null } };
+    team: Team & {
+      apiKeyId?: number;
+      apiKey: { domainId: number | null };
+    };
   };
 };
 

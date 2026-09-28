@@ -51,6 +51,10 @@ export const env = createEnv({
       .string()
       .url()
       .default("https://emailmarketing.theportlandcompany.com"),
+    // Hard per-team email send caps, enforced regardless of NEXT_PUBLIC_IS_CLOUD
+    // (self-hosted installs included). Set to -1 to disable a cap.
+    USESEND_TEAM_DAILY_SEND_LIMIT: z.coerce.number().int().default(2000),
+    USESEND_TEAM_PER_MINUTE_SEND_LIMIT: z.coerce.number().int().default(60),
     AWS_SES_ENDPOINT: z.string().optional(),
     AWS_SNS_ENDPOINT: z.string().optional(),
     AWS_DEFAULT_REGION: z
@@ -129,6 +133,9 @@ export const env = createEnv({
     AUTH_TPC_ID: process.env.AUTH_TPC_ID,
     AUTH_TPC_SECRET: process.env.AUTH_TPC_SECRET,
     AUTH_TPC_RESOURCE: process.env.AUTH_TPC_RESOURCE,
+    USESEND_TEAM_DAILY_SEND_LIMIT: process.env.USESEND_TEAM_DAILY_SEND_LIMIT,
+    USESEND_TEAM_PER_MINUTE_SEND_LIMIT:
+      process.env.USESEND_TEAM_PER_MINUTE_SEND_LIMIT,
     AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
     AWS_SES_ENDPOINT: process.env.AWS_SES_ENDPOINT,
     AWS_SNS_ENDPOINT: process.env.AWS_SNS_ENDPOINT,

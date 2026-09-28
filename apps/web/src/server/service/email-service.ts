@@ -11,6 +11,7 @@ import { logger } from "../logger/log";
 import { SuppressionService } from "./suppression-service";
 import { sanitizeCustomHeaders } from "~/server/utils/email-headers";
 import { Prisma } from "@prisma/client";
+import { LimitService } from "./limit-service";
 
 async function checkIfValidEmail(emailId: string) {
   const email = await db.email.findUnique({
@@ -75,6 +76,16 @@ export async function sendEmail(
   } = emailContent;
   let subject = subjectFromApiCall;
   let html = htmlFromApiCall;
+
+  // Fail fast with a clear 429 instead of silently queueing an email that
+  // will only be rejected later by EmailQueueService once it hits the cap.
+  const capCheck = await LimitService.checkTeamSendCap(teamId);
+  if (capCheck.isLimitReached) {
+    throw new UnsendApiError({
+      code: "RATE_LIMITED",
+      message: `Team send limit reached (${capCheck.reason}). Try again later.`,
+    });
+  }
 
   let domain: Awaited<ReturnType<typeof validateDomainFromEmail>>;
 

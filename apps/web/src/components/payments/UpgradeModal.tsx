@@ -44,6 +44,10 @@ export const UpgradeModal = () => {
                   "You've reached the email sending limit for your current plan.",
                 [LimitReason.EMAIL_FREE_PLAN_MONTHLY_LIMIT_REACHED]:
                   "You've reached the email sending limit for your current plan.",
+                [LimitReason.EMAIL_TEAM_DAILY_CAP_REACHED]:
+                  "You've reached the daily email sending cap for your team.",
+                [LimitReason.EMAIL_TEAM_PER_MINUTE_CAP_REACHED]:
+                  "You've reached the per-minute email sending cap for your team.",
               };
               return reason
                 ? `${messages[reason] ?? ""} Upgrade to unlock this feature and more.`

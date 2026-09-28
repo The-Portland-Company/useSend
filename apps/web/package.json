@@ -61,6 +61,7 @@
     "hono": "^4.12.19",
     "html-to-text": "^9.0.5",
     "ioredis": "5.10.1",
+    "jose": "^5.9.6",
     "jsx-email": "^2.8.4",
     "lucide-react": "^0.503.0",
     "mime-types": "^3.0.1",
