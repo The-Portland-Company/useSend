@@ -8,12 +8,12 @@ import { logger } from "../logger/log";
 
 /**
  * Scopes the public API understands on a TPC-issued bearer token. Send
- * endpoints (emails, campaigns) require `usesend:send`; everything else
+ * endpoints (emails, campaigns) require `usesend:write`; everything else
  * (reads, and any other mutation) requires `usesend:read`.
  *
  * These must be added to TPC Auth's `apps.scopes` list for the `usesend` app.
  */
-const TPC_SEND_SCOPE = "usesend:send";
+const TPC_SEND_SCOPE = "usesend:write";
 const TPC_READ_SCOPE = "usesend:read";
 
 export function requiredScopeForRequest(c: Context): string {

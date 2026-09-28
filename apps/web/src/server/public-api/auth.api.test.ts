@@ -64,8 +64,8 @@ describe("getTeamFromToken (TPC JWT + API key)", () => {
     mockGetTeamAndApiKey.mockReset();
   });
 
-  it("accepts a valid TPC token with usesend:send scope for a send route", async () => {
-    const token = await signToken({ sub: "tpc-user-1", scope: "usesend:send" });
+  it("accepts a valid TPC token with usesend:write scope for a send route", async () => {
+    const token = await signToken({ sub: "tpc-user-1", scope: "usesend:write" });
 
     mockDb.user.findUnique.mockResolvedValue({ id: 1, tpcSub: "tpc-user-1" });
     mockDb.teamUser.findFirst.mockResolvedValue({
@@ -91,7 +91,7 @@ describe("getTeamFromToken (TPC JWT + API key)", () => {
     });
   });
 
-  it("rejects a TPC token missing the usesend:send scope for a send route", async () => {
+  it("rejects a TPC token missing the usesend:write scope for a send route", async () => {
     const token = await signToken({ sub: "tpc-user-1", scope: "usesend:read" });
 
     const { getTeamFromToken } = await import("~/server/public-api/auth");
@@ -135,7 +135,7 @@ describe("getTeamFromToken (TPC JWT + API key)", () => {
   });
 
   it("rejects a token with a bad signature", async () => {
-    const token = await signToken({ sub: "tpc-user-1", scope: "usesend:send" });
+    const token = await signToken({ sub: "tpc-user-1", scope: "usesend:write" });
     const tampered = token.slice(0, -2) + "aa";
 
     const { getTeamFromToken } = await import("~/server/public-api/auth");
@@ -157,7 +157,7 @@ describe("getTeamFromToken (TPC JWT + API key)", () => {
   it("rejects an expired token", async () => {
     const token = await new jose.SignJWT({
       sub: "tpc-user-1",
-      scope: "usesend:send",
+      scope: "usesend:write",
     })
       .setProtectedHeader({ alg: "RS256" })
       .setIssuedAt(Math.floor(Date.now() / 1000) - 120)
@@ -185,7 +185,7 @@ describe("getTeamFromToken (TPC JWT + API key)", () => {
   it("rejects a token with the wrong audience", async () => {
     const token = await new jose.SignJWT({
       sub: "tpc-user-1",
-      scope: "usesend:send",
+      scope: "usesend:write",
     })
       .setProtectedHeader({ alg: "RS256" })
       .setIssuedAt()
@@ -211,7 +211,7 @@ describe("getTeamFromToken (TPC JWT + API key)", () => {
   });
 
   it("returns 403 when the token's sub has no linked useSend user", async () => {
-    const token = await signToken({ sub: "unknown-sub", scope: "usesend:send" });
+    const token = await signToken({ sub: "unknown-sub", scope: "usesend:write" });
     mockDb.user.findUnique.mockResolvedValue(null);
 
     const { getTeamFromToken } = await import("~/server/public-api/auth");
