@@ -9,6 +9,11 @@ const config = {
   output: process.env.DOCKER_OUTPUT ? "standalone" : undefined,
   serverExternalPackages: ["bullmq"],
   transpilePackages: ["@usesend/ui", "@usesend/email-editor"],
+  // The vendored tpc-auth SDK uses NodeNext-style "./x.js" imports of .ts files.
+  webpack: (config) => {
+    config.resolve.extensionAlias = { ".js": [".ts", ".js"] };
+    return config;
+  },
   images: {
     remotePatterns: [
       {
