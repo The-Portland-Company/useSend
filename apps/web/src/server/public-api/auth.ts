@@ -7,14 +7,33 @@ import { env } from "~/env";
 import { logger } from "../logger/log";
 
 /**
- * Scopes the public API understands on a TPC-issued bearer token. Send
- * endpoints (emails, campaigns) require `usesend:write`; everything else
- * (reads, and any other mutation) requires `usesend:read`.
+ * Scopes the public API understands on a TPC-issued bearer token.
+ *
+ * `usesend:send` (write tier) covers a single transactional send;
+ * `usesend:campaign` (danger tier) covers bulk/campaign/broadcast sends.
+ * `usesend:read` covers everything else. For one release, the legacy
+ * `usesend:write` scope (the one TPC Auth currently issues) still satisfies
+ * `usesend:send` only — it never grants `usesend:campaign`.
+ *
+ * This function only does the coarse GET-vs-write gate at token-verify time.
+ * The finer send-vs-campaign scope check, plus approval/lockdown/dailyCap,
+ * happens in the public-api hono middleware once `tpcAuth` is on the team
+ * context, because it needs the route (send vs. campaign vs. delete), not
+ * just the method.
  *
  * These must be added to TPC Auth's `apps.scopes` list for the `usesend` app.
  */
-const TPC_SEND_SCOPE = "usesend:write";
-const TPC_READ_SCOPE = "usesend:read";
+export const TPC_SEND_SCOPE = "usesend:send";
+export const TPC_CAMPAIGN_SCOPE = "usesend:campaign";
+export const TPC_READ_SCOPE = "usesend:read";
+export const TPC_LEGACY_WRITE_SCOPE = "usesend:write";
+
+export function hasTpcScope(scopes: Set<string> | string[], required: string): boolean {
+  const set = scopes instanceof Set ? scopes : new Set(scopes);
+  if (set.has(required)) return true;
+  if (required === TPC_SEND_SCOPE && set.has(TPC_LEGACY_WRITE_SCOPE)) return true;
+  return false;
+}
 
 export function requiredScopeForRequest(c: Context): string {
   const path = c.req.path;
@@ -101,7 +120,7 @@ async function getTeamFromTpcToken(token: string, requiredScope: string) {
   }
 
   const scopes = getTokenScopes(payload);
-  if (!scopes.has(requiredScope)) {
+  if (!hasTpcScope(scopes, requiredScope)) {
     throw new UnsendApiError({
       code: "FORBIDDEN",
       message: `Token is missing required scope: ${requiredScope}`,
@@ -136,10 +155,35 @@ async function getTeamFromTpcToken(token: string, requiredScope: string) {
     });
   }
 
+  // `act` (RFC 8693) names who's actually driving this credential when it's
+  // not the person named by `sub` — an agent PAT exchange or MCP client.
+  const actClaim = (payload as Record<string, unknown>).act;
+  const actorSub =
+    actClaim && typeof actClaim === "object" && "sub" in actClaim
+      ? String((actClaim as { sub: unknown }).sub)
+      : undefined;
+
   return {
     ...teamUser.team,
     apiKeyId: undefined,
     apiKey: { domainId: null },
+    // Minimal AuthContext-shaped view of this JWT, for the scope/approval/
+    // lockdown/dailyCap middleware in hono.ts. Built from the claims this
+    // app already verifies above rather than the SDK's own authenticate(),
+    // since this app keeps its existing jose-based verification path.
+    tpcAuth: {
+      sub,
+      // This app has no org claim on its own tokens today (single-team
+      // membership is resolved via User.tpcSub -> TeamUser above); the
+      // SUPER_ADMIN_SUB check in hono.ts is done directly against `sub`
+      // rather than an org role, so an empty orgs list is correct here.
+      orgs: [],
+      app: env.AUTH_TPC_RESOURCE ?? null,
+      scopes: Array.from(scopes),
+      via: "jwt" as const,
+      claims: payload as Record<string, unknown>,
+      actor: actorSub ? { sub: actorSub } : undefined,
+    },
   };
 }
 
@@ -189,6 +233,14 @@ export const getTeamFromToken = async (c: Context) => {
       message: "Invalid API token",
     });
   }
+
+  // Deprecated path: raw useSend API keys are still accepted, but every use
+  // is logged (key id only, never the raw key value) so callers can be
+  // migrated to TPC PATs.
+  logger.warn(
+    { apiKeyId: apiKey.id, teamId: team.id },
+    "Deprecated: raw useSend API key used on public API"
+  );
 
   // No await so it won't block the request. Need to be moved to a queue in future
   db.apiKey

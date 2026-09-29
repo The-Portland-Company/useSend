@@ -4,11 +4,24 @@ import { Context, Next } from "hono";
 import { handleError } from "./api-error";
 import { env } from "~/env";
 import { getRedis, redisKey } from "~/server/redis";
-import { getTeamFromToken } from "~/server/public-api/auth";
+import {
+  getTeamFromToken,
+  TPC_CAMPAIGN_SCOPE,
+  hasTpcScope,
+} from "~/server/public-api/auth";
 import { isSelfHosted } from "~/utils/common";
 import { UnsendApiError } from "./api-error";
 import { Team, ApiKey } from "@prisma/client";
 import { logger } from "../logger/log";
+import { db } from "../db";
+import type { AuthContext } from "~/server/tpc-auth";
+import {
+  requireApproval,
+  isLockedDown,
+  startRevocationPoll,
+  dailyCap,
+  postgresCounterStore,
+} from "~/server/tpc-auth";
 
 // Define AppEnv for Hono context
 export type AppEnv = {
@@ -16,11 +29,59 @@ export type AppEnv = {
     team: Team & {
       apiKeyId?: number;
       apiKey: { domainId: number | null };
+      tpcAuth?: AuthContext;
     };
   };
 };
 
+// The single TPC super admin sub. Only this identity may bypass lockdown.
+// Copied from tpc-ads-control's src/lib/access.ts (SUPER_ADMIN_SUB).
+const SUPER_ADMIN_SUB = "16650f26-d6d6-4cec-9476-504f1fdb971e";
+
+// Paths that perform a bulk/campaign/broadcast send and therefore need
+// usesend:campaign + requireApproval for TPC callers, vs. a single
+// transactional send that only needs usesend:send.
+const CAMPAIGN_PATH_PREFIXES = ["/api/v1/campaigns"];
+const BULK_SEND_PATHS = ["/api/v1/emails/batch"];
+
+function isCampaignRequest(path: string): boolean {
+  return (
+    CAMPAIGN_PATH_PREFIXES.some((p) => path.startsWith(p)) ||
+    BULK_SEND_PATHS.some((p) => path.startsWith(p))
+  );
+}
+
+function isSendRequest(method: string, path: string): boolean {
+  if (!["POST", "PATCH", "PUT"].includes(method)) return false;
+  return path.startsWith("/api/v1/emails") || path.startsWith("/api/v1/campaigns");
+}
+
+// Poll TPC revocations once per process at boot. Guarded module-level so
+// hot-reload / multiple getApp() calls in the same process don't start it
+// twice.
+let revocationPollStarted = false;
+function ensureRevocationPollStarted() {
+  if (revocationPollStarted) return;
+  if (!env.AUTH_TPC_ISSUER || !env.TPC_LOCKDOWN_CREDENTIAL) return;
+  revocationPollStarted = true;
+  try {
+    startRevocationPoll({
+      issuer: env.AUTH_TPC_ISSUER,
+      credential: env.TPC_LOCKDOWN_CREDENTIAL,
+    });
+  } catch (err) {
+    logger.error({ err }, "Failed to start TPC revocation poll");
+  }
+}
+
+const emailSendCounterStore = postgresCounterStore(async (sql, params) => {
+  const rows = await db.$queryRawUnsafe<{ count: number }[]>(sql, ...params);
+  return rows;
+});
+
 export function getApp() {
+  ensureRevocationPollStarted();
+
   const app = new OpenAPIHono<AppEnv>().basePath("/api");
 
   app.onError(handleError);
@@ -48,6 +109,98 @@ export function getApp() {
         message: "Authentication failed",
       });
     }
+    await next();
+  });
+
+  // TPC scope / approval / lockdown / dailyCap middleware. Only applies to
+  // TPC-token callers (team.tpcAuth is set by getTeamFromTpcToken) — raw
+  // useSend API keys keep their existing behavior untouched.
+  app.use("*", async (c: Context<AppEnv>, next: Next) => {
+    const team = c.var.team;
+    const ctx = team?.tpcAuth;
+    if (!ctx) return next();
+
+    const path = c.req.path;
+    const method = c.req.method;
+    const isSuperAdmin = ctx.sub === SUPER_ADMIN_SUB;
+
+    if (!isSendRequest(method, path)) {
+      // requiredScopeForRequest() in auth.ts already gated GET vs. write at
+      // verify time (usesend:read vs. usesend:send/legacy usesend:write).
+      // DELETE additionally requires approval.
+      if (method === "DELETE") {
+        const result = await requireApproval(c.req.raw, {
+          issuer: env.AUTH_TPC_ISSUER,
+          app: env.AUTH_TPC_RESOURCE,
+          action: `${method} ${path}`,
+          params: { path, method },
+          sub: ctx.sub,
+        });
+        if (!result.ok) return result.response;
+      }
+      return next();
+    }
+
+    // Lockdown: reject sends for non-super-admins when TPC is locked down.
+    // Fail open if the lockdown check itself is unreachable.
+    if (env.AUTH_TPC_ISSUER && env.TPC_LOCKDOWN_CREDENTIAL && !isSuperAdmin) {
+      try {
+        const locked = await isLockedDown(env.AUTH_TPC_ISSUER, env.TPC_LOCKDOWN_CREDENTIAL);
+        if (locked) {
+          throw new UnsendApiError({
+            code: "SERVICE_UNAVAILABLE",
+            message: "Sends are temporarily locked down",
+          });
+        }
+      } catch (err) {
+        if (err instanceof UnsendApiError) throw err;
+        logger.error({ err }, "TPC isLockedDown check failed; failing open");
+      }
+    }
+
+    // Campaign/broadcast/bulk sends need usesend:campaign, not just
+    // usesend:send (auth.ts only checked the coarser scope at verify time).
+    if (isCampaignRequest(path) && !hasTpcScope(ctx.scopes, TPC_CAMPAIGN_SCOPE)) {
+      throw new UnsendApiError({
+        code: "FORBIDDEN",
+        message: `Missing scope "${TPC_CAMPAIGN_SCOPE}"`,
+      });
+    }
+
+    // Campaign/broadcast/bulk sends by a TPC caller require approval. The
+    // public API has no human browser session reaching this path (it's
+    // always credential-based), so there's no session exemption to apply.
+    if (isCampaignRequest(path)) {
+      const result = await requireApproval(c.req.raw, {
+        issuer: env.AUTH_TPC_ISSUER,
+        app: env.AUTH_TPC_RESOURCE,
+        action: `${method} ${path}`,
+        params: { path, method },
+        sub: ctx.sub,
+      });
+      if (!result.ok) return result.response;
+    }
+
+    // Agent callers (ctx.actor set) get a 200/day cap on email.send, on top
+    // of production's existing per-team daily/per-minute send caps.
+    if (ctx.actor) {
+      const capResult = await dailyCap(ctx, "email.send", emailSendCounterStore, {
+        max: 200,
+      });
+      if (!capResult.ok) {
+        return Response.json(
+          { error: "rate_limited", retry_after: capResult.retryAfter },
+          { status: 429, headers: { "Retry-After": String(capResult.retryAfter) } }
+        );
+      }
+    }
+
+    // Log the actor driving this credential on every send.
+    logger.info(
+      { tpcSub: ctx.sub, tpcActor: ctx.actor?.sub ?? ctx.sub, path },
+      "TPC-authenticated send"
+    );
+
     await next();
   });
 

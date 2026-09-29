@@ -51,6 +51,11 @@ export const env = createEnv({
       .string()
       .url()
       .default("https://emailmarketing.theportlandcompany.com"),
+    // Credential used to call TPC Auth's lockdown/revocation endpoints
+    // (isLockedDown, startRevocationPoll). Separate from the OIDC sign-in
+    // credentials above. Optional so self-hosted/dev builds run without it
+    // (lockdown checks fail open, revocation poll simply doesn't start).
+    TPC_LOCKDOWN_CREDENTIAL: z.string().optional(),
     // Hard per-team email send caps, enforced regardless of NEXT_PUBLIC_IS_CLOUD
     // (self-hosted installs included). Set to -1 to disable a cap.
     USESEND_TEAM_DAILY_SEND_LIMIT: z.coerce.number().int().default(2000),
@@ -133,6 +138,7 @@ export const env = createEnv({
     AUTH_TPC_ID: process.env.AUTH_TPC_ID,
     AUTH_TPC_SECRET: process.env.AUTH_TPC_SECRET,
     AUTH_TPC_RESOURCE: process.env.AUTH_TPC_RESOURCE,
+    TPC_LOCKDOWN_CREDENTIAL: process.env.TPC_LOCKDOWN_CREDENTIAL,
     USESEND_TEAM_DAILY_SEND_LIMIT: process.env.USESEND_TEAM_DAILY_SEND_LIMIT,
     USESEND_TEAM_PER_MINUTE_SEND_LIMIT:
       process.env.USESEND_TEAM_PER_MINUTE_SEND_LIMIT,

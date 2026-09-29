@@ -515,3 +515,12 @@ model WebhookCall {
   @@index([teamId, webhookId, status])
   @@index([createdAt(sort: Desc)])
 }
+
+// Backing store for TPC-Auth's postgresCounterStore (dailyCap "email.send").
+// See migrations/20260929120000_tpc_rate_limit_counter.
+model TpcRateLimitCounter {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+}
