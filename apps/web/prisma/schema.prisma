@@ -112,6 +112,10 @@ model Team {
   isVerified       Boolean           @default(false)
   dailyEmailLimit  Int               @default(10000)
   isBlocked        Boolean           @default(false)
+  // TPC-Auth org claim this team maps to, for PAT/agent callers. Placeholder:
+  // the org<->team linkage is 1:1 by nullable id for now; revisit if a team
+  // needs to serve multiple TPC orgs or vice versa.
+  tpcOrgId         String?           @unique
   teamUsers        TeamUser[]
   domains          Domain[]
   apiKeys          ApiKey[]
@@ -221,6 +225,18 @@ model ApiKey {
   teamId       Int
   team         Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
   domain       Domain?       @relation(fields: [domainId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+}
+
+// Backing store for TPC-Auth's postgresCounterStore (dailyCap rate limiting
+// for PAT/agent callers). One row per composite cap key, e.g.
+// "cap:email.send:<actor>:<yyyy-mm-dd>". Written only via the
+// incr_quota_counter() SQL function added in this migration — Prisma Client
+// doesn't call this model directly.
+model TpcRateLimitCounter {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
 }
 
 enum EmailStatus {

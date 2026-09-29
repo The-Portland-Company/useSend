@@ -37,6 +37,11 @@ export const env = createEnv({
     UNSEND_API_KEY: z.string().optional(),
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
+    // TPC-Auth: PAT/agent auth on the public API (separate from the
+    // AUTH_TPC_* browser-SSO vars used by NextAuth).
+    TPC_ISSUER: z.string().url().optional(),
+    TPC_APP_ID: z.string().optional(),
+    TPC_LOCKDOWN_CREDENTIAL: z.string().optional(),
     AWS_SES_ENDPOINT: z.string().optional(),
     AWS_SNS_ENDPOINT: z.string().optional(),
     AWS_DEFAULT_REGION: z
@@ -109,6 +114,9 @@ export const env = createEnv({
     UNSEND_API_KEY: process.env.UNSEND_API_KEY,
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    TPC_ISSUER: process.env.TPC_ISSUER,
+    TPC_APP_ID: process.env.TPC_APP_ID,
+    TPC_LOCKDOWN_CREDENTIAL: process.env.TPC_LOCKDOWN_CREDENTIAL,
     AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
     AWS_SES_ENDPOINT: process.env.AWS_SES_ENDPOINT,
     AWS_SNS_ENDPOINT: process.env.AWS_SNS_ENDPOINT,
