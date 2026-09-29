@@ -33,7 +33,14 @@ export type AppEnv = {
  */
 const SEND_SCOPE = "usesend:send";
 const CAMPAIGN_SCOPE = "usesend:campaign";
+const READ_SCOPE = "usesend:read";
 const LEGACY_WRITE_SCOPE = "usesend:write";
+
+// The single TPC super admin sub. Only this identity may bypass lockdown —
+// copied from tpc-ads-control's src/lib/access.ts (SUPER_ADMIN_SUB). An org
+// "owner" role is NOT sufficient; that previously let any org owner bypass
+// lockdown, which is wrong.
+const SUPER_ADMIN_SUB = "16650f26-d6d6-4cec-9476-504f1fdb971e";
 
 function hasScope(scopes: string[], required: string): boolean {
   if (scopes.includes(required)) return true;
@@ -57,6 +64,10 @@ function isCampaignRequest(path: string): boolean {
 function isSendRequest(method: string, path: string): boolean {
   if (!["POST", "PATCH", "PUT"].includes(method)) return false;
   return path.startsWith("/api/v1/emails") || path.startsWith("/api/v1/campaigns");
+}
+
+function isDeleteRequest(method: string): boolean {
+  return method === "DELETE";
 }
 
 // Poll TPC revocations once per process at boot. Guarded module-level so
@@ -125,13 +136,37 @@ export function getApp() {
     const ctx = team.tpcAuth;
     const path = c.req.path;
     const method = c.req.method;
+    const isSuperAdmin = ctx.sub === SUPER_ADMIN_SUB;
 
-    if (!isSendRequest(method, path)) return next();
+    if (!isSendRequest(method, path)) {
+      // Non-send requests still need a scope check: reads need usesend:read,
+      // any other mutation (domains, contacts, etc.) needs usesend:send at
+      // minimum, and deletes additionally require approval.
+      const requiredScope = method === "GET" ? READ_SCOPE : SEND_SCOPE;
+      if (!hasScope(ctx.scopes, requiredScope)) {
+        throw new UnsendApiError({
+          code: "FORBIDDEN",
+          message: `Missing scope "${requiredScope}"`,
+        });
+      }
+
+      if (isDeleteRequest(method)) {
+        const result = await requireApproval(c.req.raw, {
+          issuer: env.TPC_ISSUER,
+          app: env.TPC_APP_ID ?? "usesend",
+          action: `${method} ${path}`,
+          params: { path, method },
+          sub: ctx.sub,
+        });
+        if (!result.ok) return result.response;
+      }
+
+      return next();
+    }
 
     // Lockdown: reject sends for non-super-admins when TPC is locked down.
     // Fail open if the lockdown check itself is unreachable.
     if (env.TPC_ISSUER && env.TPC_LOCKDOWN_CREDENTIAL) {
-      const isSuperAdmin = ctx.orgs.some((o: { role: string }) => o.role === "owner");
       if (!isSuperAdmin) {
         try {
           const locked = await isLockedDown(env.TPC_ISSUER, env.TPC_LOCKDOWN_CREDENTIAL);
