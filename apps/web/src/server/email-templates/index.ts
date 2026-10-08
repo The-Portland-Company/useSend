@@ -12,8 +12,3 @@ export {
   DomainVerificationStatusEmail,
   renderDomainVerificationStatusEmail,
 } from "./DomainVerificationStatusEmail";
-
-export * from "./components/EmailLayout";
-export * from "./components/EmailHeader";
-export * from "./components/EmailFooter";
-export * from "./components/EmailButton";
