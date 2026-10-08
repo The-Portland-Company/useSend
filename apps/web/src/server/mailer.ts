@@ -30,7 +30,7 @@ export async function sendSignUpEmail(
 
   const subject = "Sign in to useSend";
 
-  // Use jsx-email template for beautiful HTML
+  // Use the TPC UI email package for the HTML
   const html = await renderOtpEmail({
     otpCode: token.toUpperCase(),
     loginUrl: url,
@@ -57,7 +57,7 @@ export async function sendTeamInviteEmail(
 
   const subject = "You have been invited to join useSend";
 
-  // Use jsx-email template for beautiful HTML
+  // Use the TPC UI email package for the HTML
   const html = await renderTeamInviteEmail({
     teamName,
     inviteUrl: url,
